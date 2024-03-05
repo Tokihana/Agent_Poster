@@ -61,7 +61,7 @@ def main():
 
     # create model
     # model = pyramid_trans_expr2(img_size=224, num_classes=7)
-    model = PosterV2(use_blocks=True)
+    model = PosterV2(use_blocks=True, pool_embed=True)
     #model=HFFT()
     #model = HFFT_LBP()
 
@@ -88,6 +88,7 @@ def main():
         if os.path.isfile(args.resume):
             print("=> loading checkpoint '{}'".format(args.resume))
             checkpoint = torch.load(args.resume)
+            print(checkpoint['state'].keys())
             args.start_epoch = checkpoint['epoch']
             best_acc = checkpoint['best_acc']
             recorder = checkpoint['recorder']
@@ -333,7 +334,9 @@ def validate(val_loader, model, criterion, args):
     return top1.avg, losses.avg, output, target, D
 
 def save_checkpoint(state, is_best, args):
-    torch.save(state, args.checkpoint_path)
+    if (state['epoch'] - 1) % 20 == 0: # reduce the saving cost
+        print('save ep check')
+        torch.save(state, args.checkpoint_path)
     if is_best:
         best_state = state.pop('optimizer')
         torch.save(best_state, args.best_checkpoint_path)

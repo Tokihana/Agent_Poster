@@ -1,4 +1,6 @@
+from msilib.schema import Patch
 from telnetlib import KERMIT
+from xml.etree.ElementInclude import include
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -82,7 +84,7 @@ class FFN(nn.Module):
         return x       
     
 class PosterV2(nn.Module):
-    def __init__(self, dims=[64, 128, 256], window_sizes=[28, 14, 7], num_heads=[2, 4, 8], deepmad=False, embed_dim=768, use_blocks = True):
+    def __init__(self, dims=[64, 128, 256], window_sizes=[28, 14, 7], num_heads=[2, 4, 8], deepmad=False, embed_dim=768, use_blocks = True,pool_embed=False):
         super().__init__()
         self.feature_scales = len(dims)
         self.N = [w * w for w in window_sizes]
@@ -101,17 +103,19 @@ class PosterV2(nn.Module):
             self.attns = nn.ModuleList([WindowAttentionGlobal(dims[i], num_heads[i], window_sizes[i]) for i in range(self.feature_scales)])
             self.ffns = nn.ModuleList([FFN(dims[i], window_sizes[i], layer_scale=1e-5, drop_path=dpr[i]) for i in range(self.feature_scales)])
         
-        
+
         # ViT
-        #self.embed_q = nn.Sequential(nn.Conv2d(dims[0], 768, kernel_size=3, stride=2, padding=1),
-        #                     nn.Conv2d(768, 768, kernel_size=3, stride=2, padding=1),)
-        self.embed_q = nn.Sequential(nn.Conv2d(dims[0], dims[1], kernel_size=3, stride=2, padding=1),
+        if pool_embed:
+            self.embed_q = nn.Sequential(nn.Conv2d(dims[0], 768, kernel_size=3, stride = 2, padding=1), nn.AdaptiveAvgPool2d(window_sizes[2]))
+            self.embed_k = nn.Sequential(nn.Conv2d(dims[1], 768, kernel_size=3, stride = 2, padding=1), nn.AdaptiveAvgPool2d(window_sizes[2]))
+            self.embed_v = nn.Sequential(nn.Conv2d(dims[2], 768, kernel_size=3, padding=1), nn.AdaptiveAvgPool2d(window_sizes[2]))
+        else:
+            self.embed_q = nn.Sequential(nn.Conv2d(dims[0], dims[1], kernel_size=3, stride=2, padding=1),
                              nn.Conv2d(dims[1], dims[2], kernel_size=3, stride=2, padding=1),
                              nn.Conv2d(dims[2], 768, kernel_size=3, stride=2, padding=1),)           # 这样可能更好一些，且更符合代码图示
-        self.embed_k = nn.Sequential(nn.Conv2d(dims[1], dims[2], kernel_size=3, stride=2, padding=1),
+            self.embed_k = nn.Sequential(nn.Conv2d(dims[1], dims[2], kernel_size=3, stride=2, padding=1),
                                      nn.Conv2d(dims[2], 768, kernel_size=3, stride=2, padding=1),)
-        #self.embed_v = nn.Sequential(PatchEmbed(img_size=14, patch_size=14, in_c=256, embed_dim=768), )
-        self.embed_v = nn.Sequential(nn.Conv2d(dims[2], 768, kernel_size=3, stride=2, padding=1))
+            self.embed_v = nn.Sequential(nn.Conv2d(dims[2], 768, kernel_size=3, stride=2, padding=1))
         self.VIT = VisionTransformer(depth=2, embed_dim=embed_dim)
         
     def forward(self, x):
